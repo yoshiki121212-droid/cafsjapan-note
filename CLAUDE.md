@@ -48,6 +48,15 @@
 2. レビュー: 事実関係・出典・トーンを確認する（特に数字や制度に関する記述は要確認）
 3. 仕上げ: note.comの見出し・タグ・アイキャッチ画像などの投稿用メタ情報を検討する
 4. 公開: note.comに投稿し、必要であれば本文を微修正して同期する
+5. 転載: note.com公開後、ユーザーから合図があれば、公式サイトブログ(Wix, https://www.cafsjapan.com/blog )に同内容を自動転載・公開する（下記「Wixへの転載」参照）
+
+## Wixへの転載（cafsjapan.com/blog）
+
+- note.comに実際に投稿した後、ユーザーから「Wixにも公開して」と合図があった時点で、Wix Blog API経由で同内容を作成・公開する（note.com投稿前の自動公開はしない。人の確認を経た内容のみ転載する）。
+- Site ID: `f951ae1c-1a69-4ff3-9c2e-004fc21d89d3` / 投稿者Member ID: `6363b8cc-e47b-41c4-8fdd-862d6df391ec`
+- APIキーはセキュリティ上、この（公開）リポジトリには保存していない。ローカルPC上の `note/` フォルダ外にある `wix-api-credentials.txt`（gitの管理外）を参照する。
+- エンドポイント例: `POST https://www.wixapis.com/blog/v3/draft-posts` で下書き作成 → 別途publish系エンドポイントで公開。ヘッダーに `Authorization: <APIキー>` と `wix-site-id: <Site ID>` を付与する。
+- 実装上の注意: PowerShellから日本語を送信する際は文字化けするため、JSON文字列を `[System.Text.Encoding]::UTF8.GetBytes()` でバイト列に変換してから `-Body` に渡すこと（`Invoke-RestMethod` に文字列のまま渡すと日本語が壊れる）。
 
 ## 記事の型（例）
 
