@@ -1,0 +1,38 @@
+name: Publish latest article to Wix
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find latest article
+        id: find
+        run: |
+          best_file=""
+          best_ts=0
+          for f in $(git ls-files '*.md' | grep -v '^CLAUDE.md$'); do
+            ts=$(git log -1 --format=%ct -- "$f")
+            if [ "$ts" -gt "$best_ts" ]; then
+              best_ts=$ts
+              best_file="$f"
+            fi
+          done
+          if [ -z "$best_file" ]; then
+            echo "No article file found" >&2
+            exit 1
+          fi
+          echo "Selected article: $best_file"
+          echo "file=$best_file" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Wix
+        env:
+          WIX_API_KEY: ${{ secrets.WIX_API_KEY }}
+          WIX_SITE_ID: ${{ secrets.WIX_SITE_ID }}
+          WIX_MEMBER_ID: ${{ secrets.WIX_MEMBER_ID }}
+        run: python3 .github/scripts/publish_to_wix.py "${{ steps.find.outputs.file }}"
