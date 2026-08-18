@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import urllib.request
+import urllib.parse
 
 
 def build_rich_content(body_lines):
@@ -41,13 +42,84 @@ def build_rich_content(body_lines):
     return nodes
 
 
+def http_json(url, headers=None, data=None, method="GET"):
+    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def find_image_keyword(raw_content):
+    m = re.search(r"画像キーワード[:：]\s*(.+)", raw_content)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def fetch_and_upload_hero_image(keyword, site_id, wix_api_key):
+    unsplash_key = os.environ.get("UNSPLASH_ACCESS_KEY")
+    if not unsplash_key or not keyword:
+        return None, None
+
+    query = urllib.parse.quote(keyword)
+    search = http_json(
+        f"https://api.unsplash.com/search/photos?query={query}&per_page=1&orientation=landscape",
+        headers={"Authorization": f"Client-ID {unsplash_key}"},
+    )
+    results = search.get("results") or []
+    if not results:
+        return None, None
+    photo = results[0]
+
+    # Unsplash API guideline: trigger a download event when a photo is used.
+    download_location = photo.get("links", {}).get("download_location")
+    if download_location:
+        try:
+            http_json(download_location, headers={"Authorization": f"Client-ID {unsplash_key}"})
+        except Exception:
+            pass
+
+    image_url = photo["urls"]["regular"]
+    photographer = photo.get("user", {}).get("name", "Unsplash")
+    photographer_url = photo.get("user", {}).get("links", {}).get("html", "https://unsplash.com")
+
+    req = urllib.request.Request(image_url, headers={"User-Agent": "cafsjapan-note-bot/1.0"})
+    with urllib.request.urlopen(req) as resp:
+        image_bytes = resp.read()
+
+    gen = http_json(
+        "https://www.wixapis.com/site-media/v1/files/generate-upload-url",
+        headers={
+            "Authorization": wix_api_key,
+            "wix-site-id": site_id,
+            "Content-Type": "application/json",
+        },
+        data=json.dumps({"mimeType": "image/jpeg", "fileName": f"{re.sub(r'[^a-zA-Z0-9]+', '-', keyword)[:40]}.jpg"}).encode("utf-8"),
+        method="POST",
+    )
+    upload_url = gen["uploadUrl"]
+
+    up_req = urllib.request.Request(
+        upload_url,
+        data=image_bytes,
+        headers={"Content-Type": "image/jpeg"},
+        method="PUT",
+    )
+    with urllib.request.urlopen(up_req) as resp:
+        uploaded = json.loads(resp.read().decode("utf-8"))
+
+    media_id = uploaded["file"]["id"]
+    return media_id, {"name": photographer, "url": photographer_url}
+
+
 def main():
     path = sys.argv[1]
     with open(path, encoding="utf-8") as f:
-        content = f.read()
+        raw_content = f.read()
+
+    image_keyword = find_image_keyword(raw_content)
 
     # Strip leading HTML comment block (internal meta notes, not for public post)
-    content = re.sub(r"^\s*<!--.*?-->\s*", "", content, flags=re.DOTALL)
+    content = re.sub(r"^\s*<!--.*?-->\s*", "", raw_content, flags=re.DOTALL)
 
     lines = content.splitlines()
     title = None
@@ -61,47 +133,72 @@ def main():
     if not title:
         title = os.path.basename(path)
 
-    rich_content = {"nodes": build_rich_content(body_lines)}
+    nodes = build_rich_content(body_lines)
 
     site_id = os.environ["WIX_SITE_ID"]
     member_id = os.environ["WIX_MEMBER_ID"]
     api_key = os.environ["WIX_API_KEY"]
 
-    draft_body = json.dumps({
-        "draftPost": {
-            "title": title,
-            "memberId": member_id,
-            "richContent": rich_content,
-        }
-    }).encode("utf-8")
+    media_id = None
+    attribution = None
+    try:
+        media_id, attribution = fetch_and_upload_hero_image(image_keyword, site_id, api_key)
+    except Exception as e:
+        print(f"Hero image step failed, continuing without image: {e}", file=sys.stderr)
 
-    req = urllib.request.Request(
+    if attribution:
+        nodes.append({
+            "type": "PARAGRAPH",
+            "id": "p-image-credit",
+            "nodes": [{
+                "type": "TEXT",
+                "id": "p-image-credit-t",
+                "nodes": [],
+                "textData": {
+                    "text": f"画像: Photo by {attribution['name']} on Unsplash ({attribution['url']})",
+                    "decorations": [],
+                },
+            }],
+            "paragraphData": {},
+        })
+
+    draft_post = {
+        "title": title,
+        "memberId": member_id,
+        "richContent": {"nodes": nodes},
+    }
+    if media_id:
+        draft_post["media"] = {
+            "wixMedia": {"image": {"id": media_id}},
+            "displayed": True,
+            "custom": True,
+        }
+
+    draft_body = json.dumps({"draftPost": draft_post}).encode("utf-8")
+
+    draft = http_json(
         "https://www.wixapis.com/blog/v3/draft-posts",
-        data=draft_body,
         headers={
             "Authorization": api_key,
             "wix-site-id": site_id,
             "Content-Type": "application/json; charset=utf-8",
         },
+        data=draft_body,
         method="POST",
     )
-    with urllib.request.urlopen(req) as resp:
-        draft = json.loads(resp.read().decode("utf-8"))
 
     draft_id = draft["draftPost"]["id"]
 
-    pub_req = urllib.request.Request(
+    published = http_json(
         f"https://www.wixapis.com/blog/v3/draft-posts/{draft_id}/publish",
-        data=b"{}",
         headers={
             "Authorization": api_key,
             "wix-site-id": site_id,
             "Content-Type": "application/json; charset=utf-8",
         },
+        data=b"{}",
         method="POST",
     )
-    with urllib.request.urlopen(pub_req) as resp:
-        published = json.loads(resp.read().decode("utf-8"))
 
     print(json.dumps(published, ensure_ascii=False, indent=2))
 
@@ -115,6 +212,7 @@ def main():
             sf.write(f"## Wix publish result\n\nTitle: {title}\n\n")
             if slug:
                 sf.write(f"URL: https://www.cafsjapan.com/post/{slug}\n")
+            sf.write(f"\nHero image: {'yes' if media_id else 'no (no keyword or fetch failed)'}\n")
             sf.write("\nStatus: published\n")
 
 

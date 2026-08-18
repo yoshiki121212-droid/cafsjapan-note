@@ -38,9 +38,12 @@
 
 ## ファイル管理
 
-- 記事は `note/` フォルダ内にMarkdownファイル（`.md`）として保存・管理する
+- 記事は `note/` フォルダ内にMarkdownファイル（`.md`）として保存・管理する（このフォルダ自体がgitリポジトリ: https://github.com/yoshiki121212-droid/cafsjapan-note ）
 - ファイル名は `YYYY-MM-DD-記事タイトルのスラッグ.md` を基本とする（例: `2026-08-14-zaisei-kenzenka-teigen.md`）
 - 公開後にnote.com側で修正した場合は、このリポジトリのMarkdownにも反映し、常に最新版を保つ
+- ファイル冒頭には投稿用メタ情報をHTMLコメントで記載する（公開本文には含まれない）。必須項目:
+  - 想定公開日、記事の型、タグ案、アイキャッチ案
+  - **画像キーワード**: Wixへの転載時にUnsplashから画像を自動取得するための、英語の検索キーワード（例: `画像キーワード: consumption tax japan`）。このキーワードが無いと、Wix転載時にアイキャッチ画像が付かない。
 
 ## 作業フロー
 
@@ -48,15 +51,17 @@
 2. レビュー: 事実関係・出典・トーンを確認する（特に数字や制度に関する記述は要確認）
 3. 仕上げ: note.comの見出し・タグ・アイキャッチ画像などの投稿用メタ情報を検討する
 4. 公開: note.comに投稿し、必要であれば本文を微修正して同期する
-5. 転載: note.com公開後、ユーザーから合図があれば、公式サイトブログ(Wix, https://www.cafsjapan.com/blog )に同内容を自動転載・公開する（下記「Wixへの転載」参照）
+5. 転載: note.com公開後、ユーザーがスマホの「Wixに公開」ショートカット（下記参照）をタップし、公式サイトブログにも同内容を公開する
 
 ## Wixへの転載（cafsjapan.com/blog）
 
-- note.comに実際に投稿した後、ユーザーから「Wixにも公開して」と合図があった時点で、Wix Blog API経由で同内容を作成・公開する（note.com投稿前の自動公開はしない。人の確認を経た内容のみ転載する）。
+**アーキテクチャ上の注意（2026年8月に判明した制約）**: Claudeのクラウド実行環境（ルーティン）は、組織管理者の設定なしには外部API（Wix API、GitHub REST APIとも）への通信ができない。そのため、Wixへの実通信は **GitHub Actions**（`.github/workflows/wix-publish.yml` / `.github/scripts/publish_to_wix.py`）が担当し、ユーザーがAndroidスマホの「HTTP Shortcuts」アプリで作成したホーム画面アイコン（GitHub REST APIへの`workflow_dispatch`をPOSTするだけの単機能ショートカット）から手動でトリガーする運用になっている。Claude側のルーティン（「Wixへの転載（手動実行用）」）はこの制約により機能せず、無効化済み。
+
+- 処理内容: リポジトリ内でgitコミット履歴上最新の記事ファイルを特定 → MarkdownをrichContentに変換 → 記事冒頭のHTMLコメントから「画像キーワード」を抽出しUnsplash APIで画像検索 → 画像をWixにアップロードしheroImageとして設定 → 下書き作成 → 公開、という一連の処理をPythonスクリプトで実行する。
+- 認証情報はすべてGitHub Secretsに保管: `WIX_API_KEY` / `WIX_SITE_ID` / `WIX_MEMBER_ID` / `UNSPLASH_ACCESS_KEY`（リポジトリ本体やCLAUDE.mdには平文で残さない）。
 - Site ID: `f951ae1c-1a69-4ff3-9c2e-004fc21d89d3` / 投稿者Member ID: `6363b8cc-e47b-41c4-8fdd-862d6df391ec`
-- APIキーはセキュリティ上、この（公開）リポジトリには保存していない。ローカルPC上の `note/` フォルダ外にある `wix-api-credentials.txt`（gitの管理外）を参照する。
-- エンドポイント例: `POST https://www.wixapis.com/blog/v3/draft-posts` で下書き作成 → 別途publish系エンドポイントで公開。ヘッダーに `Authorization: <APIキー>` と `wix-site-id: <Site ID>` を付与する。
-- 実装上の注意: PowerShellから日本語を送信する際は文字化けするため、JSON文字列を `[System.Text.Encoding]::UTF8.GetBytes()` でバイト列に変換してから `-Body` に渡すこと（`Invoke-RestMethod` に文字列のまま渡すと日本語が壊れる）。
+- **重要**: このワークフローは常に「最新の記事ファイル」を対象にするため、同じ記事に対してショートカットを複数回タップすると、その回数分Wixに重複投稿される（実際に発生し、削除対応した実績あり）。1回のnote投稿につき1回のタップに留める。
+- 手動での直接操作（緊急時・デバッグ用）: ローカルPCから `gh workflow run wix-publish.yml --repo yoshiki121212-droid/cafsjapan-note` で同じ処理を起動できる。Wix APIを直接PowerShellから叩く場合、日本語は `[System.Text.Encoding]::UTF8.GetBytes()` でバイト列化してから送信すること（文字列のまま渡すと文字化けする）。
 
 ## 記事の型（例）
 
