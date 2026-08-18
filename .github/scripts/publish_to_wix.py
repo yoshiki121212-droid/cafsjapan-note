@@ -36,6 +36,7 @@ def build_rich_content(body_lines):
                     "nodes": [],
                     "textData": {"text": line, "decorations": []},
                 }],
+                "paragraphData": {},
             })
     return nodes
 
