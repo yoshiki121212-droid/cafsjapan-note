@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import sys
 import urllib.request
@@ -39,6 +40,15 @@ def build_rich_content(body_lines):
                 }],
                 "paragraphData": {},
             })
+        # Wix's default paragraph/heading style has no vertical margin, so a
+        # blank spacer paragraph is inserted after every block to force visible spacing.
+        node_id += 1
+        nodes.append({
+            "type": "PARAGRAPH",
+            "id": f"sp{node_id}",
+            "nodes": [],
+            "paragraphData": {},
+        })
     return nodes
 
 
@@ -62,13 +72,15 @@ def fetch_and_upload_hero_image(keyword, site_id, wix_api_key):
 
     query = urllib.parse.quote(keyword)
     search = http_json(
-        f"https://api.unsplash.com/search/photos?query={query}&per_page=1&orientation=landscape",
+        f"https://api.unsplash.com/search/photos?query={query}&per_page=10&orientation=landscape",
         headers={"Authorization": f"Client-ID {unsplash_key}"},
     )
     results = search.get("results") or []
     if not results:
         return None, None
-    photo = results[0]
+    # Pick randomly among the top results instead of always the first, since
+    # generic finance keywords otherwise return the same stock photo every time.
+    photo = random.choice(results)
 
     # Unsplash API guideline: trigger a download event when a photo is used.
     download_location = photo.get("links", {}).get("download_location")
