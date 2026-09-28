@@ -84,6 +84,18 @@ class BodyToMarkdown(html.parser.HTMLParser):
 
     def markdown(self):
         text = "".join(self.out)
+        # note.com's rich link-card embeds emit two adjacent <a> tags for the
+        # same URL (one for the thumbnail, one empty); drop the empty one.
+        text = re.sub(r"\[\]\([^)]*\)", "", text)
+        # Collapse the multi-line title/description/domain inside a link-card
+        # label into a single tidy line.
+        text = re.sub(
+            r"\[\s*\n+\s*\*\*(.+?)\*\*\s*\n+\s*\*(.+?)\*\s*\n+\s*\*(.+?)\*\s*\n*\]",
+            lambda m: f"[{m.group(1).strip()}]",
+            text,
+            flags=re.DOTALL,
+        )
+        text = re.sub(r"[ \t]+\n", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
@@ -129,7 +141,7 @@ def main():
     for art in articles:
         key = art.get("key")
         title = art.get("name") or art.get("title")
-        published_at = art.get("publish_at") or art.get("publishedAt") or art.get("created_at") or ""
+        published_at = art.get("publishAt") or art.get("publish_at") or art.get("created_at") or ""
         date_str = (published_at or "")[:10]
         if not key or not title:
             continue
