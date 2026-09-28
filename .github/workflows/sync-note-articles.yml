@@ -1,0 +1,35 @@
+name: Sync note.com articles to repository
+
+on:
+  schedule:
+    # 14:00 UTC = 23:00 JST, once a day
+    - cron: "0 14 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run sync script
+        id: sync
+        run: python3 .github/scripts/sync_note_articles.py
+
+      - name: Commit and push if there are changes
+        if: steps.sync.outputs.created == 'true'
+        run: |
+          git config user.name "note.com sync bot"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "Auto-sync: add newly published note.com article(s)
+
+          Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+          git push
