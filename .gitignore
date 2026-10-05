@@ -1,0 +1,3 @@
+# Playwright login session (contains note.com auth cookies - never commit)
+.playwright-scripts/*.json
+.playwright-scripts/__pycache__/
